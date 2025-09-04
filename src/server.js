@@ -1,4 +1,5 @@
-// backend/server.js
+
+// src/server.js
 import 'dotenv/config';
 import express from 'express';
 import morgan from 'morgan';
@@ -10,59 +11,50 @@ import orderRoutes from './routes/orders.js';
 
 const app = express();
 
-/* =========================
-   CORS (local-friendly + allow-list)
-   - Always allow localhost / 127.0.0.1 (any port) for dev
-   - Also allow any exact origins listed in CORS_ORIGIN (comma-separated)
-   - Examples:
-     CORS_ORIGIN=https://animated-gumdrop-022acb.netlify.app,https://lwgpartnersnetwork.com
-   ========================= */
-const allowList = (process.env.CORS_ORIGIN || '')
+/* ====== CORS ====== */
+const allowedOrigins = (process.env.CORS_ORIGIN || '*')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-const isLocalOrigin = (origin = '') =>
-  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow server-to-server, curl, Postman, Render health checks (no Origin)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: false
+}));
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // no Origin header => allow (curl/Postman/mobile/native)
-      if (!origin) return cb(null, true);
-
-      if (isLocalOrigin(origin)) return cb(null, true);
-      if (allowList.includes('*')) return cb(null, true);
-      if (allowList.includes(origin)) return cb(null, true);
-
-      console.warn('CORS blocked:', origin);
-      return cb(new Error(`Not allowed by CORS: ${origin}`));
-    },
-    credentials: false,
-  })
-);
-
-/* ============= Middleware ============= */
+/* ====== Middleware ====== */
 app.use(morgan('dev'));
 app.use(express.json({ limit: '1mb' }));
 
-/* ============= Health check ============= */
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+/* ====== Health checks ====== */
+// Root: lets Render (and you) see a quick OK
+app.get('/', (_req, res) => res.type('text').send('OK'));
+
+// Non-prefixed health for Render or uptime pingers
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString(), service: 'lwg_api' });
 });
 
-/* ============= Routes ============= */
+// API-prefixed health for your app
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString(), service: 'lwg_api' });
+});
+
+/* ====== Routes ====== */
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 
-/* ============= 404 ============= */
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+/* ====== 404 handler ====== */
+app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
-/* ============= Start ============= */
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`✅ LWG API listening on :${PORT}`);
-});
+/* ====== Start server ====== */
+const PORT = process.env.PORT || 8080; // Render injects PORT
+app.listen(PORT, () => console.log(`✅ LWG API listening on :${PORT}`));
